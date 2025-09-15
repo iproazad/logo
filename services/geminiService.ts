@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 /**
@@ -36,22 +35,29 @@ export const generateLogoImage = async (prompt: string, apiKey: string): Promise
   } catch (error) {
     console.error('Detailed error from Gemini API:', error);
     
-    if (error instanceof Error) {
-        if (error.message.includes('API key not valid')) {
-            throw new Error('The API key is not valid according to Google. Please generate a new key in your Google Cloud project.');
-        }
-        if (error.message.toLowerCase().includes('billing')) {
-            throw new Error('Billing is not enabled for the project. Please check your Google Cloud account and enable billing.');
-        }
-        if (error.message.toLowerCase().includes('permission denied')) {
-            throw new Error('API permission denied. Ensure the "Generative Language API" is enabled in your Google Cloud project.');
-        }
-         if (error.message.toLowerCase().includes('quota')) {
-            throw new Error('You have exceeded your API quota. Please check your usage limits in Google Cloud.');
-        }
+    // Attempt to extract a more specific message from the error object
+    let errorMessage = 'An unknown error occurred. Check the developer console for more details.';
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+      errorMessage = (error as Error).message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
     }
     
-    // For any other error, provide a generic message but log the specific error for debugging.
-    throw new Error('Failed to generate logo. Check the developer console (F12) for more details.');
+    // Check the extracted message for known, user-actionable issues
+    if (errorMessage.includes('API key not valid')) {
+        throw new Error('The API key is not valid. Please check your key in the Google Cloud project.');
+    }
+    if (errorMessage.toLowerCase().includes('billing')) {
+        throw new Error('Billing is not enabled for the project. The Imagen API requires a billed account. Please enable billing in your Google Cloud account.');
+    }
+    if (errorMessage.toLowerCase().includes('permission denied') || errorMessage.toLowerCase().includes('api not enabled')) {
+        throw new Error('API permission denied. Ensure the "Generative Language API" or "Vertex AI API" is enabled in your Google Cloud project.');
+    }
+     if (errorMessage.toLowerCase().includes('quota')) {
+        throw new Error('You have exceeded your API quota. Please check your usage limits in Google Cloud.');
+    }
+
+    // For other errors, throw the specific message from the API.
+    throw new Error(`Failed to generate logo: ${errorMessage}`);
   }
 };
