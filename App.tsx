@@ -1,9 +1,9 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Header from './components/Header.tsx';
 import StyleButton from './components/StyleButton.tsx';
 import Spinner from './components/Spinner.tsx';
-import { generateLogoImage } from './services/geminiService.ts';
+import { generateLogoConcept } from './services/geminiService.ts';
 
 const LOGO_STYLES = [
   "Minimalist",
@@ -16,47 +16,109 @@ const LOGO_STYLES = [
   "Graffiti"
 ];
 
+const DAILY_LIMIT = 5;
+
 const App: React.FC = () => {
   const [apiKey, setApiKey] = useState<string>('');
   const [isKeySubmitted, setIsKeySubmitted] = useState<boolean>(false);
-  const [prompt, setPrompt] = useState<string>('A dynamic and modern logo for a channel named "kaar", featuring a stylized letter K. High resolution, suitable for branding.');
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState<string>('A dynamic and modern logo for a channel named "kaar", featuring a stylized letter K.');
+  const [generatedConcept, setGeneratedConcept] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [usageCount, setUsageCount] = useState<number>(0);
 
-  const handleGenerateLogo = useCallback(async () => {
+  // Load usage count from localStorage on initial render
+  useEffect(() => {
+    try {
+      const storedUsage = localStorage.getItem('logoConceptUsage');
+      if (storedUsage) {
+        const { date, count } = JSON.parse(storedUsage);
+        const today = new Date().toISOString().split('T')[0];
+        if (date === today) {
+          setUsageCount(count);
+        } else {
+          // Reset for a new day
+          localStorage.removeItem('logoConceptUsage');
+        }
+      }
+    } catch (e) {
+      console.error("Failed to parse usage data from localStorage", e);
+      localStorage.removeItem('logoConceptUsage');
+    }
+  }, []);
+
+  const checkAndRecordUsage = (): boolean => {
+    const today = new Date().toISOString().split('T')[0];
+    let currentCount = 0;
+    
+    try {
+        const storedUsage = localStorage.getItem('logoConceptUsage');
+        if (storedUsage) {
+            const { date, count } = JSON.parse(storedUsage);
+            if (date === today) {
+                currentCount = count;
+            }
+        }
+    } catch(e) {
+        console.error("Failed to parse usage data, resetting.", e);
+        currentCount = 0;
+    }
+
+    if (currentCount >= DAILY_LIMIT) {
+      setError(`You have reached your daily limit of ${DAILY_LIMIT} logo concepts.`);
+      return false;
+    }
+
+    const newCount = currentCount + 1;
+    setUsageCount(newCount);
+    localStorage.setItem('logoConceptUsage', JSON.stringify({ date: today, count: newCount }));
+    return true;
+  };
+
+  const handleGenerateConcept = useCallback(async () => {
     if (!apiKey) {
       setError("API Key is missing. Please refresh and enter your API key.");
       return;
     }
+    if (!checkAndRecordUsage()) {
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
-    setGeneratedImage(null);
+    setGeneratedConcept(null);
 
     try {
-      const imageB64 = await generateLogoImage(prompt, apiKey);
-      setGeneratedImage(`data:image/png;base64,${imageB64}`);
-
+      const conceptText = await generateLogoConcept(prompt, apiKey);
+      setGeneratedConcept(conceptText);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
       console.error(err);
+      // Revert usage count on failure
+      const today = new Date().toISOString().split('T')[0];
+      const newCount = usageCount; // It was already incremented, so this is the failed attempt
+      setUsageCount(newCount - 1);
+      localStorage.setItem('logoConceptUsage', JSON.stringify({ date: today, count: newCount - 1 }));
+
     } finally {
       setIsLoading(false);
     }
-  }, [prompt, apiKey]);
+  }, [prompt, apiKey, usageCount]);
 
   const addStyleToPrompt = (style: string) => {
-    setPrompt(prev => `${prev.replace(/, [A-Za-z]+ style\.$/, '')}, ${style.toLowerCase()} style.`);
+    setPrompt(prev => `${prev.split(',').slice(0, 2).join(',')}, in a ${style.toLowerCase()} style.`);
   };
-
-  const downloadImage = () => {
-    if (!generatedImage) return;
-    const link = document.createElement('a');
-    link.href = generatedImage;
-    link.download = 'kaar-logo.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  
+  const copyToClipboard = () => {
+    if (!generatedConcept) return;
+    navigator.clipboard.writeText(generatedConcept)
+      .then(() => {
+         alert('Concept copied to clipboard!');
+      })
+      .catch(err => {
+        console.error('Failed to copy text: ', err);
+        alert('Failed to copy concept.');
+      });
   };
 
   if (!isKeySubmitted) {
@@ -78,7 +140,7 @@ const App: React.FC = () => {
               aria-label="Gemini API Key"
             />
             <p className="text-xs text-gray-500 mt-2">
-              Your key is used only for this session. The Imagen API requires a billed Google Cloud account.
+              Your key is used only for this session. A billed account is not required for concept generation.
             </p>
             <button
               onClick={() => {
@@ -131,20 +193,24 @@ const App: React.FC = () => {
                   ))}
                 </div>
               </div>
+              
+              <p className="text-sm text-center text-gray-400">
+                Daily generations remaining: {Math.max(0, DAILY_LIMIT - usageCount)}
+              </p>
 
               <button
-                onClick={handleGenerateLogo}
-                disabled={isLoading}
+                onClick={handleGenerateConcept}
+                disabled={isLoading || usageCount >= DAILY_LIMIT}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center transition-all duration-300 transform hover:scale-105 shadow-lg"
                 aria-busy={isLoading}
               >
                 {isLoading ? (
                   <>
                     <Spinner />
-                    Generating...
+                    Brainstorming...
                   </>
                 ) : (
-                  '✨ Generate Super Logo'
+                  '✨ Generate Logo Concept'
                 )}
               </button>
             </div>
@@ -154,7 +220,7 @@ const App: React.FC = () => {
               {isLoading && (
                  <div className="text-center" role="status" aria-live="polite">
                     <div className="w-16 h-16 border-4 border-dashed rounded-full animate-spin border-indigo-500 mx-auto"></div>
-                    <p className="mt-4 text-gray-400">Conjuring up your masterpiece...</p>
+                    <p className="mt-4 text-gray-400">Brainstorming your concept...</p>
                  </div>
               )}
               {error && (
@@ -163,25 +229,28 @@ const App: React.FC = () => {
                   <p className="text-sm">{error}</p>
                 </div>
               )}
-              {generatedImage && !isLoading && (
-                <div className="flex flex-col items-center gap-4">
-                   <h3 className="text-lg font-semibold text-indigo-300">Your Logo is Ready!</h3>
-                  <img src={generatedImage} alt="Generated logo for kaar" className="rounded-lg shadow-2xl max-w-full h-auto" />
+              {generatedConcept && !isLoading && (
+                <div className="flex flex-col items-center gap-4 w-full text-left">
+                   <h3 className="text-lg font-semibold text-indigo-300 self-start">Your Logo Concept:</h3>
+                   <div className="w-full h-64 overflow-y-auto bg-gray-800 p-4 rounded-md text-gray-300 text-sm whitespace-pre-wrap">
+                      {generatedConcept}
+                   </div>
                    <button
-                    onClick={downloadImage}
+                    onClick={copyToClipboard}
                     className="mt-2 w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg flex items-center justify-center transition duration-300"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                      <path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM5 11a1 1 0 100 2h4a1 1 0 100-2H5z"/>
+                      <path fillRule="evenodd" d="M2 5a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H4a2 2 0 01-2-2V5zm2-1a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1V5a1 1 0 00-1-1H4z" clipRule="evenodd"/>
                     </svg>
-                    Download
+                    Copy Concept
                   </button>
                 </div>
               )}
-              {!isLoading && !generatedImage && !error && (
+              {!isLoading && !generatedConcept && !error && (
                  <div className="text-center text-gray-500">
-                    <p>Your generated logo will appear here.</p>
-                    <p className="text-xs mt-2">Just describe your ideal logo and click generate!</p>
+                    <p>Your logo concept will appear here.</p>
+                    <p className="text-xs mt-2">Describe your ideal logo and let AI brainstorm the details!</p>
                  </div>
               )}
             </div>
