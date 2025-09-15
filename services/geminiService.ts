@@ -1,53 +1,63 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 /**
- * Generates a detailed logo concept using the Gemini text model.
- * @param prompt The user's basic description of the desired logo.
+ * Generates a logo image using the Gemini API.
+ * @param prompt The text prompt describing the desired logo.
  * @param apiKey The user's Gemini API key.
- * @returns A promise that resolves to the text string of the logo concept.
+ * @returns A promise that resolves to the base64 encoded image string.
  */
-export const generateLogoConcept = async (prompt: string, apiKey: string): Promise<string> => {
+export const generateLogoImage = async (prompt: string, apiKey: string): Promise<string> => {
   if (!apiKey) {
     throw new Error('API Key is missing. Please provide a valid Gemini API Key.');
   }
   const ai = new GoogleGenAI({ apiKey });
 
-  const fullPrompt = `Based on the following user request, generate a professional and creative logo concept. 
-  Describe the visual elements, color palette, typography, and overall mood and symbolism of the logo. Be detailed and inspiring.
-  
-  User Request: "${prompt}"`;
-
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: fullPrompt,
-       config: {
-        systemInstruction: "You are a world-class branding expert and logo designer. Your task is to generate a detailed, creative, and professional concept for a logo based on the user's request. Do not generate images, code, or anything other than descriptive text for the logo concept.",
-      }
+    const response = await ai.models.generateImages({
+      model: 'imagen-4.0-generate-001',
+      prompt: prompt,
+      config: {
+        numberOfImages: 1,
+        outputMimeType: 'image/png', // Use PNG for better quality and potential transparency
+        aspectRatio: '1:1',
+      },
     });
 
-    if (response.text) {
-      return response.text;
+    if (response.generatedImages && response.generatedImages.length > 0) {
+      const image = response.generatedImages[0];
+      if (image.image?.imageBytes) {
+        return image.image.imageBytes;
+      }
     }
     
-    throw new Error('No concept was generated. The response might have been empty or blocked.');
+    throw new Error('No image was generated. The response might have been blocked due to safety policies.');
 
   } catch (error) {
     console.error('Detailed error from Gemini API:', error);
     
-    let errorMessage = 'An unknown error occurred. Check the developer console for details.';
-    if (error instanceof Error) {
-      errorMessage = error.message;
+    // Attempt to extract a more specific message from the error object
+    let errorMessage = 'An unknown error occurred. Check the developer console for more details.';
+    if (typeof error === 'object' && error !== null && 'message' in error) {
+      errorMessage = (error as Error).message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
     }
-
+    
+    // Check the extracted message for known, user-actionable issues
     if (errorMessage.includes('API key not valid')) {
-        throw new Error('The API key is not valid. Please check your key and its permissions.');
+        throw new Error('The API key is not valid. Please check your key in the Google Cloud project.');
+    }
+    if (errorMessage.toLowerCase().includes('billing')) {
+        throw new Error('Billing is not enabled for the project. The Imagen API requires a billed account. Please enable billing in your Google Cloud account.');
+    }
+    if (errorMessage.toLowerCase().includes('permission denied') || errorMessage.toLowerCase().includes('api not enabled')) {
+        throw new Error('API permission denied. Ensure the "Generative Language API" or "Vertex AI API" is enabled in your Google Cloud project.');
     }
      if (errorMessage.toLowerCase().includes('quota')) {
         throw new Error('You have exceeded your API quota. Please check your usage limits in Google Cloud.');
     }
-    
-    throw new Error(`Failed to generate concept: ${errorMessage}`);
+
+    // For other errors, throw the specific message from the API.
+    throw new Error(`Failed to generate logo: ${errorMessage}`);
   }
 };
