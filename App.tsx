@@ -3,6 +3,7 @@ import React, { useState, useCallback } from 'react';
 import Header from './components/Header.tsx';
 import StyleButton from './components/StyleButton.tsx';
 import Spinner from './components/Spinner.tsx';
+import { generateLogoImage } from './services/geminiService.ts';
 
 const LOGO_STYLES = [
   "Minimalist",
@@ -16,32 +17,25 @@ const LOGO_STYLES = [
 ];
 
 const App: React.FC = () => {
+  const [apiKey, setApiKey] = useState<string>('');
+  const [isKeySubmitted, setIsKeySubmitted] = useState<boolean>(false);
   const [prompt, setPrompt] = useState<string>('A dynamic and modern logo for a channel named "kaar", featuring a stylized letter K. High resolution, suitable for branding.');
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleGenerateLogo = useCallback(async () => {
+    if (!apiKey) {
+      setError("API Key is missing. Please refresh and enter your API key.");
+      return;
+    }
     setIsLoading(true);
     setError(null);
     setGeneratedImage(null);
 
     try {
-      const response = await fetch('/.netlify/functions/generateLogo', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ prompt }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'An error occurred while generating the logo.');
-      }
-      
-      setGeneratedImage(`data:image/png;base64,${result.imageB64}`);
+      const imageB64 = await generateLogoImage(prompt, apiKey);
+      setGeneratedImage(`data:image/png;base64,${imageB64}`);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unknown error occurred.');
@@ -49,7 +43,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [prompt]);
+  }, [prompt, apiKey]);
 
   const addStyleToPrompt = (style: string) => {
     setPrompt(prev => `${prev.replace(/, [A-Za-z]+ style\.$/, '')}, ${style.toLowerCase()} style.`);
@@ -64,6 +58,44 @@ const App: React.FC = () => {
     link.click();
     document.body.removeChild(link);
   };
+
+  if (!isKeySubmitted) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md mx-auto bg-gray-800/50 backdrop-blur-sm p-8 rounded-2xl shadow-2xl border border-gray-700 text-center">
+          <Header />
+          <div className="mt-8">
+            <label htmlFor="apiKey" className="block text-sm font-medium text-indigo-300 mb-2">
+              Enter Your Gemini API Key
+            </label>
+            <input
+              id="apiKey"
+              type="password"
+              className="w-full bg-gray-900 border border-gray-600 rounded-lg p-3 text-gray-200 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-200 placeholder-gray-500"
+              placeholder="***************************************"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              aria-label="Gemini API Key"
+            />
+            <p className="text-xs text-gray-500 mt-2">
+              Your key is used only for this session. The Imagen API requires a billed Google Cloud account.
+            </p>
+            <button
+              onClick={() => {
+                if (apiKey.trim()) {
+                  setIsKeySubmitted(true);
+                }
+              }}
+              disabled={!apiKey.trim()}
+              className="mt-6 w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105 shadow-lg"
+            >
+              Start Generating
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center p-4 sm:p-6 lg:p-8 font-sans">
